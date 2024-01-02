@@ -1,6 +1,5 @@
 # coding=utf-8
 
-import random
 import copy
 from dataclasses import dataclass
 
@@ -8,45 +7,9 @@ import torch
 from torch.utils.data import Dataset
 from datasets import load_dataset, set_caching_enabled
 
-from utils.utils import gsm8k_prompt
+from utils.utils import perturbation
 
 IGNORE_INDEX = -100
-
-
-def dataset_maker(dataset):
-    print("Start to make dataset!")
-    new_dataset = []
-    ids = dataset["id"]
-    max_id = max(ids)
-
-    for id in range(max_id):
-        questions = []
-
-        # Select all lines where 'id' is equal to id
-        lines = dataset.filter(lambda example: example['id'] == id, batch_size=None)
-        answer = lines["answer_detail"][0]
-
-        # Retrieved the paraphrased questions
-        for q in lines["paraphrased_question"]:
-            questions.append(q)
-        questions.append(lines["original_question"][0])
-
-        # Randomly select K items from the list
-        num_q = random.randint(1, 5)
-        try:
-            selected_q = random.sample(questions, num_q)
-        except BaseException:
-            num_q = random.randint(1, len(questions))
-            selected_q = random.sample(questions, num_q)
-
-        for i in range(len(selected_q)):
-            subset_q = selected_q[:i + 1]
-            formatted_q = gsm8k_prompt(question=subset_q, answer=answer, train=True)
-            new_dataset.append({"question": formatted_q, "answer": answer})
-
-    random.shuffle(new_dataset)
-
-    return new_dataset
 
 
 def tokenize_fn(strings, tokenizer):
@@ -122,13 +85,15 @@ class SupervisedDataset(Dataset):
         set_caching_enabled(False)
 
         # Load the fine-tuning dataset
-        # data = load_dataset("shuyuej/mathdata_consistency")
-        data = load_dataset("shuyuej/GSM8K-Consistency")
+        data = load_dataset("shuyuej/CleanedMetaMathQA")
         data = data["train"]
-        data = dataset_maker(data)
 
-        sources = [f"{example['question']}" for example in data]
-        targets = [f"{example['answer']}" for example in data]
+        sources = [
+            f"{perturbation(sen=example['paraphrased_question'], ratio=0.10)}" for example in data
+        ]
+        targets = [
+            f"{example['answer_detail']}" for example in data
+        ]
 
         self.sources = sources
         self.targets = targets

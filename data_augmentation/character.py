@@ -123,6 +123,7 @@ class CharacterPerturb:
     def __init__(self, sentence, level):
         # The sentence to be perturbed
         self.data = sentence
+
         # The perturbation level to be implemented
         self.percent = level
 

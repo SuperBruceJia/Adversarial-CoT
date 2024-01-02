@@ -1,13 +1,14 @@
 # coding=utf-8
 
-import io
-import os
 import re
-import json
+import random
 import yaml
 from fraction import Fraction
 
-from data_processing import paragraph_split
+from data_processing.paragraph_split import paragraph_splitter
+from data_augmentation.character import CharacterPerturb
+from data_augmentation.word import WordPerturb
+
 
 DEFAULT_BOS_TOKEN = "<s>"
 DEFAULT_EOS_TOKEN = "</s>"
@@ -119,7 +120,7 @@ def stop_token_list():
                    "Instruction:",
                    "Instruction",
                    "Response:",
-                   "Response", ]
+                   "Response",]
 
     return stop_tokens
 
@@ -174,43 +175,17 @@ class CustomStream:
         pass
 
 
-def gsm8k_prompt(question, answer=None, train=False):
+def gsm8k_prompt(question):
     """The formatting prompts function for GSM8K database
 
     :param question: Question (task description)
     :param answer: Answer to the Question
     :return: The prompt of the GSM8K database
     """
-    if train:
-        # ("Below is an instruction that describes a task. Write a response that appropriately completes the request."
-        #  "\n\n### Instruction:\n{instruction}\n\n### Response: Let's think step by step.")
-
-        # prompt = ("Below are semantics similar instructions that describe a task. "
-        #           "Write a response that appropriately completes the request and give one consistent answer.")
-        prompt = ("Below is an instruction that describes a task. "
-                  "Write a response that appropriately completes the request.")
-
-        for i, q in enumerate(question):
-            prompt += "\n\n### Instruction:\n"
-            prompt += q
-            prompt += "\n\n### Response: Let's think step by step."
-            if i < len(question) - 1:
-                prompt += answer
-    else:
-        prompt = ("Below is an instruction that describes a task. "
-                  "Write a response that appropriately completes the request."
-                  "\n\n### Instruction:\n" + question +
-                  "\n\n### Response: Let's think step by step.")
-        # prompt = ("Below are semantics similar instructions that describe a task. "
-        #           "Write a response that appropriately completes the request and give one consistent answer."
-        #           "\n\n### Instruction:\n" + question +
-        #           "\n\n### Response: Let's think step by step.")
-        # backward_ques = backward(sentence=question)
-        # prompt = ("Below are semantics similar instructions that describe a task. "
-        #           "Write a response that appropriately completes the request and give one consistent answer."
-        #           "\n\n### Instruction:\n" + question +
-        #           "\n\n### Instruction:\n" + backward_ques +
-        #           "\n\n### Response: Let's think step by step.")
+    prompt = ("Below is an instruction that describes a task. "
+              "Write a response that appropriately completes the request."
+              "\n\n### Instruction:\n" + question +
+              "\n\n### Response: Let's think step by step.")
 
     return prompt
 
@@ -229,17 +204,74 @@ def unwrap_model(model):
         return model
 
 
-def backward(sentence):
-    # Split paragraph into sentences
-    sen_split = paragraph_split.paragraph_splitter(sentence)
+def perturbation(sen, ratio):
+    ori_sen = sen[:]
+    if random.random() >= ratio:
+        pass
+    else:
+        # Split the paragraph into sentences
+        sens = paragraph_splitter(paragraph=sen)
 
-    # Reverse the order of list elements
-    sen_split.reverse()
+        if len(sens) == 0 or len(sens) == 1:
+            return ori_sen
+        else:
+            sen_out = []
+            for i in range(len(sens) - 1):
+                sen = sens[i]
+                level = random.sample(["char_replace",
+                                       "char_delete",
+                                       "char_insert",
+                                       "char_swap",
+                                       "char_keyboard",
+                                       "char_ocr",
+                                       "word_replace",
+                                       "word_delete",
+                                       "word_insert",
+                                       "word_swap",
+                                       "word_split",
+                                       "word_punctuation"], 1)[0]
 
-    # Changing the alphabet letters to lowercase in the first sentence
-    sen_split[0] = sen_split[0].lower()
+                noise_ratio = random.sample([0.01, 0.025, 0.05, 0.075, 0.10], 1)[0]
+                character_tool = CharacterPerturb(sentence=sen, level=noise_ratio)
+                word_tool = WordPerturb(sentence=sen, level=noise_ratio)
 
-    sentence = " ".join(sen_split)
-    sentence = "Given the following statements, " + sentence
+                if level == "char_replace":
+                    sen = character_tool.character_replacement()
+                elif level == "char_delete":
+                    sen = character_tool.character_deletion()
+                elif level == "char_insert":
+                    sen = character_tool.character_insertion()
+                elif level == "char_swap":
+                    sen = character_tool.character_swap()
+                elif level == "char_keyboard":
+                    sen = character_tool.keyboard_typos()
+                elif level == "char_ocr":
+                    sen = character_tool.optical_character_recognition()
+                elif level == "word_replace":
+                    sen = word_tool.synonym_replacement()
+                elif level == "word_delete":
+                    sen = word_tool.word_deletion()
+                elif level == "word_insert":
+                    sen = word_tool.word_insertion()
+                elif level == "word_swap":
+                    sen = word_tool.word_swap()
+                elif level == "word_split":
+                    sen = word_tool.word_split()
+                elif level == "word_punctuation":
+                    sen = word_tool.insert_punctuation()
 
-    return sentence
+                sen_out.append(sen)
+
+            try:
+                sen_out.append(sens[-1])
+                if len(sen_out) > 1 and type(sen_out) == list:
+                    sen = ' '.join(sen_out)
+                elif len(sen_out) == 1 and type(sen_out) == list:
+                    sen = sen_out[0]
+                else:
+                    sen = sen_out
+            except IndexError:
+                print("Index error for the last sentence!")
+                return ori_sen
+
+    return sen
